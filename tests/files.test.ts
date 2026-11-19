@@ -558,6 +558,10 @@ test("8 MB provider granularity uses a file-scoped direct session and validates 
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     if (url.endsWith("/upload/v1beta/files")) {
+      assert.equal(
+        new Headers(init?.headers).get("origin"),
+        "http://localhost",
+      );
       reserved = JSON.parse(String(init?.body)).file.name;
       assert.match(reserved, /^files\/xamo-[a-f0-9]{24}$/);
       return new Response(null, {

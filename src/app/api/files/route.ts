@@ -147,6 +147,8 @@ export async function POST(req: NextRequest) {
       headers: {
         "x-goog-api-key": process.env.GEMINI_API_KEY,
         "X-Goog-Upload-Protocol": "resumable",
+        // Bind the upload session to the browser origin for Google's CORS checks.
+        Origin: new URL(req.url).origin,
         "X-Goog-Upload-Command": "start",
         "X-Goog-Upload-Header-Content-Length": String(size),
         "X-Goog-Upload-Header-Content-Type": mimeType,
