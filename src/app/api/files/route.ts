@@ -22,7 +22,11 @@ function fail(error: unknown) {
     { status: error instanceof AccessError ? error.status : 400 },
   );
 }
-async function upstream(url: string, init: RequestInit) {
+async function upstream(
+  url: string,
+  init: RequestInit,
+  allowIncomplete = false,
+) {
   const response = await fetch(url, {
     ...init,
     redirect: "error",
@@ -30,11 +34,15 @@ async function upstream(url: string, init: RequestInit) {
       ? AbortSignal.any([init.signal, AbortSignal.timeout(50000)])
       : AbortSignal.timeout(50000),
   });
-  if (!response.ok)
+  const incomplete =
+    allowIncomplete &&
+    response.status === 308 &&
+    response.headers.get("x-goog-upload-status") === "active";
+  if (!response.ok && !incomplete)
     throw new AccessError(
       response.status === 429
         ? "File processing is busy or its quota is exhausted. Try again later."
-        : "The file provider could not process this upload. Try a smaller file or a different format.",
+        : `The file provider could not process this upload (HTTP ${response.status}). Try a smaller file or a different format.`,
       response.status === 429 ? 429 : 502,
     );
   return response;
@@ -138,7 +146,12 @@ export async function POST(req: NextRequest) {
       expiresAt: Date.now() + 3600000,
     };
     return NextResponse.json(
-      { token: sealFile(ticket) },
+      {
+        token: sealFile(ticket),
+        chunkGranularity:
+          Number(response.headers.get("x-goog-upload-chunk-granularity")) ||
+          null,
+      },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {
@@ -180,16 +193,20 @@ export async function PUT(req: NextRequest) {
       (!final && length !== CHUNK_BYTES)
     )
       throw new Error("Invalid chunk size. Please attach the file again.");
-    const response = await upstream(ticket.target, {
-      method: "POST",
-      signal: req.signal,
-      headers: {
-        "Content-Type": ticket.mimeType,
-        "X-Goog-Upload-Offset": String(offset),
-        "X-Goog-Upload-Command": final ? "upload, finalize" : "upload",
+    const response = await upstream(
+      ticket.target,
+      {
+        method: "POST",
+        signal: req.signal,
+        headers: {
+          "Content-Type": ticket.mimeType,
+          "X-Goog-Upload-Offset": String(offset),
+          "X-Goog-Upload-Command": final ? "upload, finalize" : "upload",
+        },
+        body: Buffer.concat(chunks),
       },
-      body: Buffer.concat(chunks),
-    });
+      !final,
+    );
     if (final) return fileResult((await response.json()).file, ticket);
     return NextResponse.json(
       { token: sealFile({ ...ticket, offset: offset + length }) },

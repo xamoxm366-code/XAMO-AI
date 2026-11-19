@@ -164,7 +164,10 @@ test("resumable upload preserves bytes and offsets, keeps secrets server-side, a
       );
       chunks++;
       return chunks === 1
-        ? new Response(null)
+        ? new Response(null, {
+            status: 308,
+            headers: { "x-goog-upload-status": "active" },
+          })
         : Response.json(
             fixture({ name: "files/synthetic123", state: "PROCESSING" }),
           );
