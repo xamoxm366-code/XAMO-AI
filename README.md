@@ -104,15 +104,30 @@ The AI will refuse to run if durable quota storage is missing. Do not remove tha
 
 Service credentials and environment variables are managed through your hosting dashboard; the admin UI does not expose them. Guest preview visitors are not Supabase accounts and do not appear in the user list. Admin user management shows the first 100 accounts in this beta.
 
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:5939c76475158b7a6c9475a283cafb4b0d75a0f6e93e8f1e8bdfaaa1adf12ec9 -->
+
 ## Day 7 — Live information and voice
 
-1. Read the [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) and [Google Search grounding documentation](https://ai.google.dev/gemini-api/docs/google-search), including source and search-suggestion display requirements for your chosen model/API.
-2. If the available quota and terms fit your zero-cost constraint, set `ENABLE_WEB_SEARCH=true`, restart, and enable **Web search** in the composer. Otherwise leave it off.
-3. Ask a question that needs current information. Confirm the result has real source links and that they support the answer. The app displays provider-supplied search suggestions in a sandboxed frame; verify their display against the applicable provider requirements before public launch.
-4. Try microphone dictation and read-aloud in Chrome, with permission granted. Test the specific languages and devices you plan to support. Browser voice controls are not a real-time Gemini voice conversation.
-5. Check answers manually. Search grounding improves access to sources but cannot guarantee correctness.
+1. For a limited free search option, create a free [Tavily account](https://app.tavily.com/). Basic searches currently use one credit each; check [current credits and pricing](https://docs.tavily.com/documentation/api-credits) before enabling it.
+2. Add the Tavily key as server-only `TAVILY_API_KEY` in `.env.local` and Vercel's Production environment. Set `ENABLE_WEB_SEARCH=true` in the same environments, then restart locally or redeploy on Vercel. Never share the key or put it in a `NEXT_PUBLIC_` variable.
+3. Turn on **Web search** in the composer. Your question is sent to the search provider; the attached file is excluded from that search query. Search snippets are sent to Gemini to produce the answer. Review the source links and check important claims.
+4. When a Tavily key is configured, XAMO uses Tavily. Without it, enabled search uses Google Search grounding; that feature may need a paid tier and has separate terms, charges, and display requirements. Check [Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing) before enabling it. Failed Tavily requests do not fall back to Google search.
+5. Try microphone dictation and read-aloud in Chrome, with permission granted. Test the specific languages and devices you plan to support. Browser voice controls are not a real-time Gemini voice conversation.
+6. Free credits and AI quotas are limited and shared by everyone using the project. Monitor both dashboards; no provider guarantees unlimited free usage.
+
+
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:83a524d308c7a230e8edc113a8f75fd9673268b31fba92a2b89132c1eb07af6f -->
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Day 8 — Test before launch
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Run these in the VS Code terminal:
 

@@ -1561,8 +1561,8 @@ export default function Workspace() {
                       <strong>Private by default on this device</strong>
                       <p>
                         Chats are stored locally. Prompts are sent to the AI
-                        provider when connected. Signing in does not sync
-                        history.
+                        provider, and searches to a search provider when
+                        enabled. Signing in does not sync history.
                       </p>
                     </div>
                     <span className="local-tag">LOCAL</span>
@@ -1659,7 +1659,7 @@ export default function Workspace() {
                     {
                       day: "07–08",
                       title: "Test the complete journey",
-                      text: "Test signup, email verification, Google login, password reset, AI replies, language choices, usage limits, and admin access. Enable live search only after checking your provider’s current pricing and search-display requirements.",
+                      text: "Test signup, email verification, Google login, password reset, AI replies, language choices, usage limits, and admin access. For live search, add a Tavily key and enable web search after checking your provider’s current usage limits.",
                     },
                     {
                       day: "09–10",
