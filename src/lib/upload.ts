@@ -141,22 +141,74 @@ export async function uploadFile(
       }),
     }),
   );
-  for (let offset = 0; offset < blob.size; offset += CHUNK_BYTES) {
+  if (data.directUrl) {
+    const destination = new URL(data.directUrl);
+    if (
+      destination.origin !== "https://generativelanguage.googleapis.com" ||
+      !destination.pathname.startsWith("/upload/") ||
+      destination.searchParams.has("key")
+    )
+      throw new Error("Invalid upload destination.");
+    const uploadToken = data.token;
+    const chunkSize = Math.max(8 * 1024 * 1024, data.chunkGranularity);
+    for (let offset = 0; offset < blob.size; offset += chunkSize) {
+      const final = offset + chunkSize >= blob.size;
+      let response;
+      try {
+        response = await fetch(destination.href, {
+          method: "POST",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+          redirect: "error",
+          signal,
+          headers: {
+            "Content-Type": mimeType,
+            "X-Goog-Upload-Offset": String(offset),
+            "X-Goog-Upload-Command": final ? "upload, finalize" : "upload",
+          },
+          body: blob.slice(offset, offset + chunkSize),
+        });
+      } catch (error) {
+        if (signal.aborted) throw error;
+        throw new Error(
+          "The direct file upload was interrupted or blocked by your browser/network. Try again or use a smaller file.",
+        );
+      }
+      if (!response.ok && !(response.status === 308 && !final))
+        throw new Error(
+          `The file provider rejected this upload (HTTP ${response.status}). Try another format or a smaller file.`,
+        );
+      await response.body?.cancel();
+      progress(
+        `Uploading ${Math.min(100, Math.round(((offset + chunkSize) / blob.size) * 100))}%`,
+      );
+    }
     data = await json(
       await fetch("/api/files", {
-        method: "PUT",
-        headers: {
-          ...headers,
-          "Content-Type": "application/octet-stream",
-          "x-upload-token": data.token,
-        },
-        body: blob.slice(offset, offset + CHUNK_BYTES),
+        method: "POST",
+        headers,
         signal,
+        body: JSON.stringify({ action: "complete", token: uploadToken }),
       }),
     );
-    progress(
-      `Uploading ${Math.min(100, Math.round(((offset + CHUNK_BYTES) / blob.size) * 100))}%`,
-    );
+  } else {
+    for (let offset = 0; offset < blob.size; offset += CHUNK_BYTES) {
+      data = await json(
+        await fetch("/api/files", {
+          method: "PUT",
+          headers: {
+            ...headers,
+            "Content-Type": "application/octet-stream",
+            "x-upload-token": data.token,
+          },
+          body: blob.slice(offset, offset + CHUNK_BYTES),
+          signal,
+        }),
+      );
+      progress(
+        `Uploading ${Math.min(100, Math.round(((offset + CHUNK_BYTES) / blob.size) * 100))}%`,
+      );
+    }
   }
   // Poll in independent requests, so large videos are not constrained by a single function's duration.
   const deadline = Date.now() + 10 * 60000;

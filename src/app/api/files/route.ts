@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { randomBytes } from "node:crypto";
 import { actor, quota, AccessError } from "@/lib/access";
 import { CHUNK_BYTES, MAX_FILE_BYTES, allowedUploadTypes } from "@/lib/files";
 import { openFile, sealFile, type FileTicket } from "@/lib/file-tokens";
@@ -95,6 +96,30 @@ export async function POST(req: NextRequest) {
     const raw = await req.text();
     if (raw.length > 10000) throw new Error("Invalid upload request.");
     const data = JSON.parse(raw);
+    if (data.action === "complete") {
+      const { token } = z.object({ token: z.string().max(6000) }).parse(data);
+      const ticket = openFile(token, owner, "upload");
+      if (
+        !ticket.direct ||
+        !ticket.fileName ||
+        !/^files\/xamo-[a-f0-9]{24}$/.test(ticket.fileName)
+      )
+        throw new Error("Invalid direct upload session.");
+      const response = await upstream(`${base}/v1beta/${ticket.fileName}`, {
+        headers: { "x-goog-api-key": process.env.GEMINI_API_KEY },
+        signal: req.signal,
+      });
+      const file = await response.json();
+      if (
+        file.name !== ticket.fileName ||
+        Number(file.sizeBytes) !== ticket.size ||
+        file.mimeType !== ticket.mimeType
+      )
+        throw new Error(
+          "Uploaded file does not match this session. Please attach it again.",
+        );
+      return fileResult(file, ticket);
+    }
     if (data.action === "status") {
       const { token } = z.object({ token: z.string().max(6000) }).parse(data);
       const ticket = openFile(token, owner, "file");
@@ -115,6 +140,7 @@ export async function POST(req: NextRequest) {
     if (mimeType === "application/pdf" && size > 50 * 1024 * 1024)
       throw new Error("PDF files must be 50 MB or smaller.");
     await quota(owner);
+    const fileName = `files/xamo-${randomBytes(12).toString("hex")}`;
     const response = await upstream(`${base}/upload/v1beta/files`, {
       method: "POST",
       signal: req.signal,
@@ -126,7 +152,7 @@ export async function POST(req: NextRequest) {
         "X-Goog-Upload-Header-Content-Type": mimeType,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ file: { display_name: name } }),
+      body: JSON.stringify({ file: { name: fileName, display_name: name } }),
     });
     const target = response.headers.get("x-goog-upload-url");
     if (
@@ -135,8 +161,17 @@ export async function POST(req: NextRequest) {
       !new URL(target).pathname.startsWith("/upload/")
     )
       throw new Error("Invalid upload destination.");
+    const chunkGranularity =
+      Number(response.headers.get("x-goog-upload-chunk-granularity")) || 262144;
+    const direct = size > CHUNK_BYTES && chunkGranularity > CHUNK_BYTES;
+    // The session is limited to this randomly named file and declared byte length.
+    // Expose no project credentials: only the temporary upload capability, when needed.
+    if (direct && new URL(target).searchParams.has("key"))
+      throw new Error("Unsafe upload destination.");
     const ticket: FileTicket = {
       kind: "upload",
+      fileName,
+      direct,
       owner,
       name,
       size,
@@ -148,9 +183,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         token: sealFile(ticket),
-        chunkGranularity:
-          Number(response.headers.get("x-goog-upload-chunk-granularity")) ||
-          null,
+        chunkGranularity,
+        ...(direct ? { directUrl: target } : {}),
       },
       { headers: { "Cache-Control": "no-store" } },
     );
@@ -166,6 +200,8 @@ export async function PUT(req: NextRequest) {
       owner,
       "upload",
     );
+    if (ticket.direct)
+      throw new Error("This file uses a direct upload session.");
     if (Number(req.headers.get("content-length")) > CHUNK_BYTES)
       throw new AccessError("Upload chunk is too large.", 413);
     // Bound reads even when Content-Length is absent or forged.

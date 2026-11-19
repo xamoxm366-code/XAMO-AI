@@ -59,7 +59,13 @@ Use **+** beside the message box, choose one file, wait for **Ready**, and send 
 | Other binaries/proprietary formats | File size, header and sampled printable strings; this is limited inspection, not full format understanding |
 
 - Maximum original file size **100 MB**, or **50 MB for PDF**. Unsupported encodings, encrypted/damaged archives, model context/page limits and provider quotas can prevent analysis. Split large files or export to a supported format when needed. No universal decoder or unlimited file support is claimed.
-- Uploads use 2 MB chunks, keeping each request below Vercel's body limit. Processing status is polled separately, including for long videos. Cancellation stops further work; Gemini automatically deletes uploaded files within 48 hours. Reattach expired files or files uploaded under a different account/session.
+- <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:757d1bb9ce3823e2cdd8e5d68a53eb2077c6d2edc618ea356a8921e8e4af657d -->
+
+Small uploads use the server relay (at most 2 MB per request). When Gemini requires 8 MB chunks, larger files upload directly to a temporary Gemini session for a server-reserved random file name. The project API key stays on the server; completion rechecks file ownership, size and MIME type before issuing a usable reference. Processing status is polled separately, including for long videos.
+
+<!-- /coderabbit-ai-generated:v1 --> Cancellation stops further work; Gemini automatically deletes uploaded files within 48 hours. Reattach expired files or files uploaded under a different account/session.
 - Each upload start and each AI request consumes one unit of the existing daily quota, including failed attempts. Uploads use the existing server-only Gemini key and account/guest authorization; no new service or environment variable is required. The chosen Gemini model must support the media being analyzed.
 - Extraction runs in a browser worker. Archives are bounded to 1,000 listed entries, 60 selected text entries, 1 MB per entry and 2 MB total expanded text. <!-- coderabbit-ai-generated:v1 -->
 

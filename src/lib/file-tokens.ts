@@ -13,6 +13,8 @@ export type FileTicket = {
   expiresAt: number;
   target: string;
   offset?: number;
+  fileName?: string;
+  direct?: boolean;
 };
 function key() {
   if (!process.env.GEMINI_API_KEY)

@@ -546,3 +546,90 @@ test("file processing failures and upstream quota errors remain actionable", asy
   assert.equal(response.status, 429);
   assert.match((await response.json()).error, /quota/);
 });
+
+test("8 MB provider granularity uses a file-scoped direct session and validates completion ownership and metadata", async () => {
+  setup();
+  const base = globalThis.fetch;
+  let reserved = "";
+  let mismatched = false;
+  const size = 10 * 1024 * 1024;
+  const destination =
+    "https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=synthetic-session-only";
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.endsWith("/upload/v1beta/files")) {
+      reserved = JSON.parse(String(init?.body)).file.name;
+      assert.match(reserved, /^files\/xamo-[a-f0-9]{24}$/);
+      return new Response(null, {
+        headers: {
+          "x-goog-upload-url": destination,
+          "x-goog-upload-chunk-granularity": "8388608",
+        },
+      });
+    }
+    if (url.endsWith(`/v1beta/${reserved}`))
+      return Response.json({
+        name: reserved,
+        sizeBytes: String(mismatched ? 1 : size),
+        mimeType: "video/mp4",
+        state: "PROCESSING",
+      });
+    return base(input, init);
+  };
+  const start = await (
+    await upload(
+      request({
+        action: "start",
+        name: "large.mp4",
+        size,
+        mimeType: "video/mp4",
+      }),
+    )
+  ).json();
+  assert.equal(start.directUrl, destination);
+  assert.equal(start.chunkGranularity, 8388608);
+  assert.ok(!JSON.stringify(start).includes("synthetic-key"));
+  const result = await upload(
+    request({ action: "complete", token: start.token }),
+  );
+  assert.equal(result.status, 200);
+  const data = await result.json();
+  assert.equal(data.state, "processing");
+  assert.equal(openFile(data.attachment.token, owner, "file").target, reserved);
+  mismatched = true;
+  assert.equal(
+    (await upload(request({ action: "complete", token: start.token }))).status,
+    400,
+  );
+  assert.equal(
+    (
+      await upload(
+        request({
+          action: "complete",
+          token: sealFile({
+            ...ticket,
+            kind: "upload",
+            direct: true,
+            fileName: "files/other-user",
+          }),
+        }),
+      )
+    ).status,
+    400,
+  );
+  assert.equal(
+    (
+      await chunk(
+        new NextRequest("http://localhost/api/files", {
+          method: "PUT",
+          headers: {
+            Authorization: "Bearer synthetic-session",
+            "x-upload-token": start.token,
+          },
+          body: new Uint8Array(1),
+        }),
+      )
+    ).status,
+    400,
+  );
+});
