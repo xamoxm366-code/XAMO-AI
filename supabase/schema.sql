@@ -2,7 +2,7 @@
 create table if not exists public.app_settings (
   id integer primary key check (id = 1),
   ai_enabled boolean not null default true,
-  daily_limit integer not null default 30 check (daily_limit between 1 and 1000)
+  daily_limit integer default 30 check (daily_limit is null or daily_limit between 1 and 1000)
 );
 insert into public.app_settings (id) values (1) on conflict do nothing;
 alter table public.app_settings enable row level security;

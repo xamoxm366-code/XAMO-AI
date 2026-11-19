@@ -61,7 +61,6 @@ type Preferences = {
   language: string;
   persona: "Balanced" | "Concise" | "Creative" | "Teacher";
   speak: boolean;
-  speed: "fast" | "thorough";
 };
 type Modal =
   | "auth"
@@ -79,7 +78,7 @@ type AdminData = {
     banned: boolean;
     created: string;
   }[];
-  settings: { ai_enabled: boolean; daily_limit: number };
+  settings: { ai_enabled: boolean; daily_limit: number | null };
   providerConnected: boolean;
   webSearch: boolean;
 };
@@ -98,7 +97,6 @@ const defaults: Preferences = {
   language: "Auto-detect",
   persona: "Balanced",
   speak: false,
-  speed: "fast",
 };
 const storageKey = "xamo.workspace.v1";
 const suggestions = [
@@ -184,7 +182,8 @@ export default function Workspace() {
   const [admin, setAdmin] = useState<AdminData | null>(null),
     [adminAllowed, setAdminAllowed] = useState(false),
     [adminBusy, setAdminBusy] = useState(false),
-    [adminError, setAdminError] = useState("");
+    [adminError, setAdminError] = useState(""),
+    [adminUnlimited, setAdminUnlimited] = useState(false);
   const [listening, setListening] = useState(false),
     [speaking, setSpeaking] = useState<string | null>(null),
     [copied, setCopied] = useState<string | null>(null);
@@ -342,6 +341,7 @@ export default function Workspace() {
       if (!cancelled) {
         setAdminAllowed(!!data);
         setAdmin(data);
+        setAdminUnlimited(data?.settings.daily_limit === null);
       }
     });
     return () => {
@@ -458,7 +458,6 @@ export default function Workspace() {
           language: prefs.language,
           persona: prefs.persona,
           webSearch: web,
-          speed: prefs.speed,
           stream: true,
         }),
       });
@@ -768,10 +767,16 @@ export default function Workspace() {
         headers: await headers(),
         body: JSON.stringify(body),
       });
-      if (!result.ok) throw new Error("Could not save this change.");
+      if (!result.ok)
+        throw new Error(
+          body && "daily_limit" in body && body.daily_limit === null
+            ? "Could not save. Check that the Unlimited database update has been run in Supabase."
+            : "Could not save this change.",
+        );
       const data = await getAdmin();
       if (!data) throw new Error("Could not reload administrator data.");
       setAdmin(data);
+      setAdminUnlimited(data.settings.daily_limit === null);
       notify("Admin settings saved.");
     } catch (error) {
       setAdminError(error instanceof Error ? error.message : "Could not save.");
@@ -1195,7 +1200,7 @@ export default function Workspace() {
           >
             <div
               className="upload-hint"
-              title="Uploads and AI requests each count toward the daily limit. Uploaded files expire within 48 hours."
+              title="Uploads and AI requests count toward any configured daily limit. Uploaded files expire within 48 hours."
             >
               Images, videos, audio, PDFs, code & files · up to 100 MB (PDF 50
               MB)
@@ -1297,25 +1302,6 @@ export default function Workspace() {
                 </button>
               </div>
               <div className="composer-right">
-                <label
-                  className="speed-control"
-                  title="Fast reduces reasoning time. Thorough takes longer for deeper analysis."
-                >
-                  <Zap size={12} />
-                  <select
-                    aria-label="Response speed"
-                    value={prefs.speed}
-                    onChange={(event) =>
-                      setPrefs({
-                        ...prefs,
-                        speed: event.target.value as Preferences["speed"],
-                      })
-                    }
-                  >
-                    <option value="fast">Fast</option>
-                    <option value="thorough">Thorough</option>
-                  </select>
-                </label>
                 <button
                   className={`icon-button mic-button ${listening ? "recording" : ""}`}
                   aria-label={
@@ -1962,7 +1948,9 @@ export default function Workspace() {
                         updateAdmin({
                           action: "settings",
                           ai_enabled: data.get("enabled") === "on",
-                          daily_limit: Number(data.get("limit")),
+                          daily_limit: adminUnlimited
+                            ? null
+                            : Number(data.get("limit")),
                         });
                       }}
                     >
@@ -1981,9 +1969,18 @@ export default function Workspace() {
                           type="number"
                           min="1"
                           max="1000"
-                          defaultValue={admin.settings.daily_limit}
-                          required
+                          defaultValue={admin.settings.daily_limit ?? 30}
+                          disabled={adminUnlimited}
+                          required={!adminUnlimited}
                         />
+                      </label>
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={adminUnlimited}
+                          onChange={(e) => setAdminUnlimited(e.target.checked)}
+                        />
+                        Unlimited daily requests for everyone
                       </label>
                       <button className="primary-button" disabled={adminBusy}>
                         Save controls

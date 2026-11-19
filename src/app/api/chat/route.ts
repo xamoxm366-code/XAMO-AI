@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
       { error: "Please send a valid message." },
       { status: 400 },
     );
-  const { messages, language, persona, webSearch, stream, speed } = input.data;
+  const { messages, language, persona, webSearch, stream } = input.data;
   if (!process.env.GEMINI_API_KEY)
     return NextResponse.json({
       text: messages.some((m) => m.attachments?.length)
@@ -125,10 +125,23 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     );
   }
-  const { data: allowed, error: quotaError } = await db.rpc(
-    "consume_chat_quota",
-    { subject: identity, daily_max: settings.daily_limit },
-  );
+  if (
+    settings.daily_limit !== null &&
+    (!Number.isInteger(settings.daily_limit) ||
+      settings.daily_limit < 1 ||
+      settings.daily_limit > 1000)
+  )
+    return NextResponse.json(
+      { error: "Invalid daily limit configuration." },
+      { status: 503 },
+    );
+  const { data: allowed, error: quotaError } =
+    settings.daily_limit === null
+      ? { data: true, error: null }
+      : await db.rpc("consume_chat_quota", {
+          subject: identity,
+          daily_max: settings.daily_limit,
+        });
   if (quotaError || !allowed)
     return NextResponse.json(
       {
@@ -204,18 +217,13 @@ export async function POST(req: NextRequest) {
             ...(/^gemini-3(?:\.\d+)?-/.test(model)
               ? {
                   thinkingConfig: {
-                    thinkingLevel: speed === "fast" ? "LOW" : "HIGH",
+                    thinkingLevel: "LOW",
                   },
                 }
               : /^gemini-2\.5-/.test(model)
                 ? {
                     thinkingConfig: {
-                      thinkingBudget:
-                        speed === "fast"
-                          ? model.includes("pro")
-                            ? 512
-                            : 0
-                          : 8192,
+                      thinkingBudget: model.includes("pro") ? 512 : 0,
                     },
                   }
                 : {}),

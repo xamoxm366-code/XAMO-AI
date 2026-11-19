@@ -47,6 +47,13 @@ export async function quota(owner: string) {
       "XAMO is taking a short break. Please try again later.",
       503,
     );
+  if (settings.daily_limit === null) return;
+  if (
+    !Number.isInteger(settings.daily_limit) ||
+    settings.daily_limit < 1 ||
+    settings.daily_limit > 1000
+  )
+    throw new AccessError("Invalid daily limit configuration.", 503);
   const { data: allowed, error: quotaError } = await db.rpc(
     "consume_chat_quota",
     { subject: owner, daily_max: settings.daily_limit },

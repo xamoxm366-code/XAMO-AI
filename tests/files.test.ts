@@ -131,6 +131,38 @@ test("uploads enforce authentication, durable quotas, types and size before star
     );
   assert.ok(!calls.some((url) => url.includes("/upload/")));
 });
+test("unlimited setting permits file upload without consuming quota, but respects AI pause", async () => {
+  const calls = setup(false);
+  const base = globalThis.fetch;
+  let enabled = true;
+  globalThis.fetch = async (input, init) => {
+    const url = String(input);
+    if (url.includes("/rest/v1/app_settings"))
+      return Response.json({ ai_enabled: enabled, daily_limit: null });
+    if (url.includes("generativelanguage.googleapis.com/upload/"))
+      return new Response(null, {
+        status: 200,
+        headers: {
+          "x-goog-upload-url":
+            "https://generativelanguage.googleapis.com/upload/v1beta/files?upload_id=synthetic",
+        },
+      });
+    return base(input, init);
+  };
+  const data = {
+    action: "start",
+    name: "test.png",
+    mimeType: "image/png",
+    size: 10,
+  };
+  assert.equal((await upload(request(data))).status, 200);
+  assert.equal(
+    calls.some((url) => url.includes("consume_chat_quota")),
+    false,
+  );
+  enabled = false;
+  assert.equal((await upload(request(data))).status, 503);
+});
 test("resumable upload preserves bytes and offsets, keeps secrets server-side, and handles processing video", async () => {
   const calls = setup();
   const base = globalThis.fetch;
@@ -345,7 +377,7 @@ test("streaming sends the first answer before completion, excludes thought text,
       assert.equal(
         JSON.parse(String(init?.body)).generationConfig.thinkingConfig
           .thinkingLevel,
-        "HIGH",
+        "LOW",
       );
       const encoder = new TextEncoder();
       return new Response(

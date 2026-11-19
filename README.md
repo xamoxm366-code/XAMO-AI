@@ -10,7 +10,13 @@ XAMO AI is a responsive chat application built with Next.js, React, TypeScript, 
 
 <!-- coderabbit-ai-generated-section:v1:fd3f40891712c539c9a0a4c7d3aa27300ddea95c85ce78f60942088c4f72c7d1 -->
 
-- Dark chat workspace, conversation search and deletion, local history, preferences, export, file analysis, and streamed replies with Fast/Thorough response options.
+- <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:6188818f5b1939d79da00e9159146086f64fa36f5a20bfb09a2b842e8de2ee3a -->
+
+Dark chat workspace, conversation search and deletion, local history, preferences, export, file analysis, and streamed replies using the fast response setting.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 <!-- /coderabbit-ai-generated:v1 -->
 - Sign-in, sign-up, Google sign-in, email verification instructions, forgot-password and password-update screens, wired to Supabase when configured.
@@ -66,7 +72,13 @@ Use **+** beside the message box, choose one file, wait for **Ready**, and send 
 Small uploads use the server relay (at most 2 MB per request). When Gemini requires 8 MB chunks, larger files upload directly to a temporary Gemini session for a server-reserved random file name. The project API key stays on the server; completion rechecks file ownership, size and MIME type before issuing a usable reference. Processing status is polled separately, including for long videos.
 
 <!-- /coderabbit-ai-generated:v1 --> Cancellation stops further work; Gemini automatically deletes uploaded files within 48 hours. Reattach expired files or files uploaded under a different account/session.
-- Each upload start and each AI request consumes one unit of the existing daily quota, including failed attempts. Uploads use the existing server-only Gemini key and account/guest authorization; no new service or environment variable is required. The chosen Gemini model must support the media being analyzed.
+- <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:df53fc22c2ed861aeb6d4712e581750c5577c6e03e11ca7e6cd343607e2158ef -->
+
+Each upload start and AI request consumes one unit of the configured daily quota, including failed attempts. If an admin selects Unlimited, XAMO skips its daily request cap for everyone; Gemini provider quotas and billing still apply. Uploads use the existing server-only Gemini key and account/guest authorization. The chosen Gemini model must support the media being analyzed.
+
+<!-- /coderabbit-ai-generated:v1 -->
 - Extraction runs in a browser worker. Archives are bounded to 1,000 listed entries, 60 selected text entries, 1 MB per entry and 2 MB total expanded text. <!-- coderabbit-ai-generated:v1 -->
 
 <!-- coderabbit-ai-generated-section:v1:4624a9d07957e21ad38bfc961c10d4fd472e30f8e807a4a7a434244da9d1f719 -->
@@ -74,7 +86,13 @@ Small uploads use the server relay (at most 2 MB per request). When Gemini requi
 Extracted body text is capped at 200,000 characters, plus the bounded file listing; omitted sections are identified.
 
 <!-- /coderabbit-ai-generated:v1 --> Programs and APKs are never run, and static inspection cannot certify software safety.
-- **Fast** is the default and reduces the model's reasoning effort on known Gemini 2.5/3 model families. Choose **Thorough** for deeper analysis when quality matters more than latency. Other models use their defaults. Answers stream as they are generated; **Stop** cancels generation and preserves clearly labeled partial text. This improves time to visible text, and does not guarantee faster provider computation or bypass quotas.
+- <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:df226a466e5c32d58b65064809636bdc9fa2a792151e6eee11b39c4344b1682d -->
+
+All replies use the fast reasoning setting for known Gemini 2.5/3 model families; other models use their defaults. Answers stream as they are generated; **Stop** cancels generation and preserves clearly labeled partial text. Provider processing time can still vary, especially for complex questions and files.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## Day 1 — Open the project in VS Code
 
@@ -156,8 +174,21 @@ The AI will refuse to run if durable quota storage is missing. Do not remove tha
 1. Set `ADMIN_EMAILS` in `.env.local` to your exact verified account email. For more than one trusted admin, use comma-separated addresses.
 2. Restart the app and sign in with that verified account.
 3. **Admin dashboard** appears in the sidebar only after the server verifies your account and email allowlist.
-4. Test pausing AI, saving a small daily limit, restoring AI, and suspending a separate synthetic test account. The admin screen intentionally disables suspending your currently signed-in account.
-5. Test a normal user and a guest: neither should see admin controls, and direct requests to `/api/admin` must return `403`.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e9338a411d7437d4678feab131d30fb869c8e1b09413361c3bdfb2da564aa077 -->
+
+4. For an existing Supabase database, run `supabase/migrations/20261119_unlimited_daily_limit.sql` in the Supabase SQL Editor once. It preserves the current limit. In the admin dashboard, select **Unlimited daily requests for everyone** and save to remove XAMO’s daily cap, or set a number from 1 to 1,000. Provider quotas and costs still apply.
+5. Test pausing AI, restoring AI, and suspending a separate synthetic test account. The admin screen intentionally disables suspending your currently signed-in account.
+
+<!-- /coderabbit-ai-generated:v1 -->
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:be157498fa2d9b72c19b78d7a3dc36fa6869751a0db018591731ffb29124aa75 -->
+
+6. Test a normal user and a guest: neither should see admin controls, and direct requests to `/api/admin` must return `403`.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 Service credentials and environment variables are managed through your hosting dashboard; the admin UI does not expose them. Guest preview visitors are not Supabase accounts and do not appear in the user list. Admin user management shows the first 100 accounts in this beta.
 

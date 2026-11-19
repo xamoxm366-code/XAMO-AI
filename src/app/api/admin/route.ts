@@ -41,7 +41,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("settings"),
     ai_enabled: z.boolean(),
-    daily_limit: z.number().int().min(1).max(1000),
+    daily_limit: z.number().int().min(1).max(1000).nullable(),
   }),
   z.object({ action: z.literal("user"), id: z.uuid(), banned: z.boolean() }),
 ]);

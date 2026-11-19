@@ -44,6 +44,8 @@ function providerStub(
     verified?: boolean;
     banned?: boolean;
     providerStatus?: number;
+    dailyLimit?: number | null;
+    aiEnabled?: boolean;
   } = {},
 ) {
   globalThis.fetch = async (input, init) => {
@@ -58,7 +60,10 @@ function providerStub(
           : { email_confirmed_at: "2026-11-01T00:00:00Z" }),
       });
     if (url.includes("/rest/v1/app_settings"))
-      return Response.json({ ai_enabled: true, daily_limit: 30 });
+      return Response.json({
+        ai_enabled: options.aiEnabled ?? true,
+        daily_limit: options.dailyLimit === undefined ? 30 : options.dailyLimit,
+      });
     if (url.includes("/rest/v1/rpc/consume_chat_quota"))
       return Response.json(options.allowed !== false);
     if (url.includes("generativelanguage.googleapis.com")) {
@@ -164,6 +169,59 @@ test("enforces the durable daily quota before calling Gemini", async () => {
   configure();
   providerStub({ allowed: false });
   assert.equal((await POST(request(prompt, true))).status, 429);
+});
+test("unlimited setting permits chat without consuming quota while AI pause still applies", async () => {
+  configure();
+  providerStub({ dailyLimit: null, allowed: false });
+  const base = globalThis.fetch;
+  let quotaCalls = 0;
+  globalThis.fetch = async (input, init) => {
+    if (String(input).includes("consume_chat_quota")) quotaCalls++;
+    return base(input, init);
+  };
+  assert.equal((await POST(request(prompt, true))).status, 200);
+  assert.equal(quotaCalls, 0);
+  providerStub({ dailyLimit: null, aiEnabled: false });
+  assert.equal((await POST(request(prompt, true))).status, 503);
+  providerStub({ dailyLimit: 0 });
+  assert.equal((await POST(request(prompt, true))).status, 503);
+});
+test("only verified admins may save unlimited and finite limits remain validated", async () => {
+  configure();
+  process.env.ADMIN_EMAILS = "zaeem@example.test";
+  providerStub();
+  const base = globalThis.fetch;
+  let saved: unknown;
+  globalThis.fetch = async (input, init) => {
+    if (
+      String(input).includes("/rest/v1/app_settings") &&
+      init?.method === "PATCH"
+    ) {
+      saved = JSON.parse(String(init.body));
+      return Response.json(saved);
+    }
+    return base(input, init);
+  };
+  const update = (daily_limit: unknown, token = true) =>
+    new NextRequest("http://localhost/api/admin", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: "Bearer synthetic-test-token" } : {}),
+      },
+      body: JSON.stringify({
+        action: "settings",
+        ai_enabled: true,
+        daily_limit,
+      }),
+    });
+  assert.equal((await PATCH(update(null, false))).status, 403);
+  assert.equal((await PATCH(update(0))).status, 400);
+  assert.equal((await PATCH(update(1001))).status, 400);
+  assert.equal((await PATCH(update(null))).status, 200);
+  assert.deepEqual(saved, { ai_enabled: true, daily_limit: null });
+  assert.equal((await PATCH(update(1000))).status, 200);
+  assert.deepEqual(saved, { ai_enabled: true, daily_limit: 1000 });
 });
 test("returns provider text and safe citations, excluding private reasoning", async () => {
   configure();
