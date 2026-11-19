@@ -41,12 +41,16 @@ import remarkGfm from "remark-gfm";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { safeUrl } from "@/lib/chat";
+import { sizeLabel, type Attachment } from "@/lib/files";
+import { uploadFile } from "@/lib/upload";
+import { lines } from "@/lib/stream";
 
 type Source = { title: string; url: string };
 type Message = {
   id: string;
   role: "user" | "assistant";
   content: string;
+  attachments?: Attachment[];
   preview?: boolean;
   sources?: Source[];
   searchSuggestions?: string;
@@ -57,6 +61,7 @@ type Preferences = {
   language: string;
   persona: "Balanced" | "Concise" | "Creative" | "Teacher";
   speak: boolean;
+  speed: "fast" | "thorough";
 };
 type Modal =
   | "auth"
@@ -93,6 +98,7 @@ const defaults: Preferences = {
   language: "Auto-detect",
   persona: "Balanced",
   speak: false,
+  speed: "fast",
 };
 const storageKey = "xamo.workspace.v1";
 const suggestions = [
@@ -163,10 +169,8 @@ export default function Workspace() {
   const [input, setInput] = useState(""),
     [busy, setBusy] = useState(false),
     [web, setWeb] = useState(false),
-    [attachment, setAttachment] = useState<{
-      name: string;
-      text: string;
-    } | null>(null);
+    [attachment, setAttachment] = useState<Attachment | null>(null),
+    [uploadProgress, setUploadProgress] = useState("");
   const [modal, setModal] = useState<Modal>(null),
     [sidebar, setSidebar] = useState(false),
     [toast, setToast] = useState(""),
@@ -187,7 +191,10 @@ export default function Workspace() {
   const inputRef = useRef<HTMLTextAreaElement>(null),
     fileRef = useRef<HTMLInputElement>(null),
     bottomRef = useRef<HTMLDivElement>(null),
+    conversationRef = useRef<HTMLDivElement>(null),
+    followReplyRef = useRef(true),
     abortRef = useRef<AbortController | null>(null),
+    uploadAbortRef = useRef<AbortController | null>(null),
     recognitionRef = useRef<Recognition | null>(null),
     dialogRef = useRef<HTMLDivElement>(null);
   const active = chats.find((c) => c.id === activeId),
@@ -200,6 +207,9 @@ export default function Workspace() {
   };
   function newChat() {
     abortRef.current?.abort();
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
+    setUploadProgress("");
     setActiveId(null);
     setInput("");
     setAttachment(null);
@@ -243,12 +253,14 @@ export default function Workspace() {
     return () => {
       auth?.data.subscription.unsubscribe();
       abortRef.current?.abort();
+      uploadAbortRef.current?.abort();
       recognitionRef.current?.stop();
       window.speechSynthesis?.cancel();
     };
   }, []);
   useEffect(() => {
-    if (ready)
+    if (!ready) return;
+    const timer = setTimeout(() => {
       try {
         localStorage.setItem(storageKey, JSON.stringify({ chats, prefs }));
       } catch {
@@ -256,6 +268,8 @@ export default function Workspace() {
           "Device storage is full. Export your conversations to keep a copy.",
         );
       }
+    }, 350);
+    return () => clearTimeout(timer);
   }, [chats, prefs, ready]);
   useEffect(() => {
     if (toast) {
@@ -266,6 +280,10 @@ export default function Workspace() {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, busy]);
+  useEffect(() => {
+    if (busy && followReplyRef.current)
+      bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [messages.at(-1)?.content, busy]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "k") {
@@ -348,20 +366,20 @@ export default function Workspace() {
     }
   }
   async function send(text = input) {
-    if (busy || !text.trim()) return;
-    const content =
-      text.trim() +
-      (attachment
-        ? `\n\nAttached file: ${attachment.name}\n\n${attachment.text}`
-        : "");
+    if (busy || uploadProgress || (!text.trim() && !attachment)) return;
+    const content = text.trim() || "Analyze this file.";
     if (content.length > 24000) {
-      notify(
-        "Please keep your message and attachment under 24,000 characters.",
-      );
+      notify("Please keep your message under 24,000 characters.");
       return;
     }
-    const id = activeId || crypto.randomUUID(),
-      message: Message = { id: crypto.randomUUID(), role: "user", content };
+    const selectedFile = attachment;
+    const id = activeId || crypto.randomUUID();
+    const message: Message = {
+      id: crypto.randomUUID(),
+      role: "user",
+      content,
+      ...(selectedFile ? { attachments: [selectedFile] } : {}),
+    };
     const history = [...messages, message];
     setChats((prev) =>
       active
@@ -371,56 +389,145 @@ export default function Workspace() {
         : [
             {
               id,
-              title: text.trim().slice(0, 48),
+              title: (text.trim() || selectedFile?.name || content).slice(
+                0,
+                48,
+              ),
               messages: history,
               updated: Date.now(),
             },
             ...prev,
           ],
     );
+    followReplyRef.current = true;
     setActiveId(id);
     setInput("");
     setAttachment(null);
     setBusy(true);
     const controller = new AbortController();
     abortRef.current = controller;
+    let answer = "",
+      added = false,
+      completed = false;
+    const reply: Message = {
+      id: crypto.randomUUID(),
+      role: "assistant",
+      content: "",
+    };
+    const updateReply = () => {
+      reply.content = answer;
+      const copy = { ...reply };
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id !== id
+            ? c
+            : {
+                ...c,
+                updated: Date.now(),
+                messages: c.messages.some((m) => m.id === reply.id)
+                  ? c.messages.map((m) => (m.id === reply.id ? copy : m))
+                  : [...c.messages, copy],
+              },
+        ),
+      );
+      added = true;
+    };
+    let paintTimer: ReturnType<typeof setTimeout> | undefined;
     try {
+      const context = history
+        .slice(-39)
+        .map(({ role, content, attachments }) => ({
+          role,
+          content:
+            content.length > 24000
+              ? `${content.slice(0, 23940)}\n[Earlier answer excerpt truncated]`
+              : content,
+          attachments,
+        }));
+      while (
+        context.length > 1 &&
+        new TextEncoder().encode(JSON.stringify(context)).length > 120000
+      )
+        context.shift();
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: await headers(),
         signal: controller.signal,
         body: JSON.stringify({
-          messages: history
-            .slice(-39)
-            .map(({ role, content }) => ({ role, content })),
+          messages: context,
           language: prefs.language,
           persona: prefs.persona,
           webSearch: web,
+          speed: prefs.speed,
+          stream: true,
         }),
       });
-      const data = await response.json();
-      if (!response.ok)
-        throw new Error(
-          data.error || "Something went wrong. Please try again.",
-        );
-      const reply: Message = {
-        id: crypto.randomUUID(),
-        role: "assistant",
-        content: data.text,
-        sources: data.sources,
-        preview: data.preview,
-        searchSuggestions: data.searchSuggestions,
-      };
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, messages: [...c.messages, reply] } : c,
-        ),
-      );
-      if (prefs.speak) speak(reply.content, reply.id);
+      if (
+        !response.ok ||
+        !response.headers.get("content-type")?.includes("application/x-ndjson")
+      ) {
+        let data;
+        try {
+          data = await response.json();
+        } catch {
+          throw new Error(
+            "The connection was interrupted. Try a smaller request.",
+          );
+        }
+        if (!response.ok)
+          throw new Error(
+            data.error || "Something went wrong. Please try again.",
+          );
+        Object.assign(reply, {
+          sources: data.sources,
+          preview: data.preview,
+          searchSuggestions: data.searchSuggestions,
+        });
+        answer = data.text;
+        updateReply();
+        completed = true;
+      } else {
+        if (!response.body) throw new Error("No response stream was received.");
+        for await (const line of lines(response.body)) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line);
+          if (event.error) throw new Error(event.error);
+          if (event.delta) {
+            answer += event.delta;
+            if (!added) updateReply();
+            else if (!paintTimer)
+              paintTimer = setTimeout(() => {
+                paintTimer = undefined;
+                updateReply();
+              }, 80);
+          }
+          if (event.done) {
+            completed = true;
+            Object.assign(reply, {
+              sources: event.sources,
+              preview: event.preview,
+              searchSuggestions: event.searchSuggestions,
+            });
+          }
+        }
+        if (!completed)
+          throw new Error(
+            "The connection ended early. Any answer shown is incomplete.",
+          );
+        clearTimeout(paintTimer);
+        paintTimer = undefined;
+        updateReply();
+      }
+      if (prefs.speak && completed) speak(answer, reply.id);
     } catch (error) {
-      if (error instanceof Error && error.name !== "AbortError") {
-        notify(error.message);
-        setInput(text);
+      clearTimeout(paintTimer);
+      paintTimer = undefined;
+      if (answer) {
+        answer += controller.signal.aborted
+          ? "\n\n*Stopped.*"
+          : "\n\n*Answer interrupted; this response is incomplete.*";
+        updateReply();
+      } else {
         setChats((prev) =>
           prev.map((c) =>
             c.id === id
@@ -431,10 +538,48 @@ export default function Workspace() {
               : c,
           ),
         );
+        if (!controller.signal.aborted) {
+          setInput(text);
+          setAttachment(selectedFile);
+        }
       }
+      if (!controller.signal.aborted && error instanceof Error)
+        notify(error.message);
     } finally {
-      setBusy(false);
-      abortRef.current = null;
+      clearTimeout(paintTimer);
+      if (abortRef.current === controller) {
+        setBusy(false);
+        abortRef.current = null;
+      }
+    }
+  }
+  async function attach(file: File) {
+    uploadAbortRef.current?.abort();
+    const controller = new AbortController();
+    uploadAbortRef.current = controller;
+    setAttachment(null);
+    setUploadProgress("Preparing file…");
+    try {
+      const result = await uploadFile(
+        file,
+        await headers(),
+        controller.signal,
+        (status) => {
+          if (uploadAbortRef.current === controller) setUploadProgress(status);
+        },
+      );
+      if (uploadAbortRef.current === controller) {
+        setAttachment(result);
+        inputRef.current?.focus();
+      }
+    } catch (error) {
+      if (!controller.signal.aborted && error instanceof Error)
+        notify(error.message);
+    } finally {
+      if (uploadAbortRef.current === controller) {
+        setUploadProgress("");
+        uploadAbortRef.current = null;
+      }
     }
   }
   async function authenticate(event: FormEvent<HTMLFormElement>) {
@@ -819,6 +964,13 @@ export default function Workspace() {
         </header>
         <div
           className={`conversation-area ${messages.length ? "has-messages" : ""}`}
+          ref={conversationRef}
+          onScroll={() => {
+            const area = conversationRef.current;
+            if (area)
+              followReplyRef.current =
+                area.scrollHeight - area.scrollTop - area.clientHeight < 100;
+          }}
         >
           {!messages.length ? (
             <section className="welcome">
@@ -898,6 +1050,25 @@ export default function Workspace() {
                       </span>
                     )}
                   </div>
+                  {!!message.attachments?.length && (
+                    <div className="message-files">
+                      {message.attachments.map((file, index) => (
+                        <div className="file-card" key={index}>
+                          <FileText size={15} />
+                          <div>
+                            <strong>{file.name}</strong>
+                            <small>
+                              {sizeLabel(file.size)}
+                              {file.note ? ` · ${file.note}` : ""}
+                              {file.expiresAt < Date.now()
+                                ? " · Expired: reattach for further analysis"
+                                : ""}
+                            </small>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <div className="message-body" dir="auto">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
@@ -985,7 +1156,11 @@ export default function Workspace() {
               {busy && (
                 <div className="thinking">
                   <Mark small />
-                  <span>XAMO is thinking</span>
+                  <span>
+                    {messages.at(-1)?.role === "assistant"
+                      ? "XAMO is responding"
+                      : "XAMO is thinking"}
+                  </span>
                   <span className="thinking-dots">···</span>
                 </div>
               )}
@@ -1018,10 +1193,38 @@ export default function Workspace() {
               send();
             }}
           >
+            <div
+              className="upload-hint"
+              title="Uploads and AI requests each count toward the daily limit. Uploaded files expire within 48 hours."
+            >
+              Images, videos, audio, PDFs, code & files · up to 100 MB (PDF 50
+              MB)
+            </div>
+            {uploadProgress && (
+              <div className="attachment" role="status">
+                <LoaderCircle size={14} className="upload-spinner" />
+                {uploadProgress}
+                <button
+                  type="button"
+                  aria-label="Cancel upload"
+                  onClick={() => {
+                    uploadAbortRef.current?.abort();
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
             {attachment && (
               <div className="attachment">
                 <FileText size={13} />
-                {attachment.name}
+                <div>
+                  <strong>{attachment.name}</strong>
+                  <small>
+                    {sizeLabel(attachment.size)}
+                    {attachment.note ? ` · ${attachment.note}` : ""} · Ready
+                  </small>
+                </div>
                 <button
                   type="button"
                   aria-label="Remove attachment"
@@ -1058,7 +1261,9 @@ export default function Workspace() {
               <div className="composer-tools">
                 <button
                   className="icon-button"
-                  title="Attach a text file"
+                  title="Attach a file"
+                  aria-label="Attach a file"
+                  disabled={busy}
                   type="button"
                   onClick={() => fileRef.current?.click()}
                 >
@@ -1092,10 +1297,25 @@ export default function Workspace() {
                 </button>
               </div>
               <div className="composer-right">
-                <span className="model-name">
+                <label
+                  className="speed-control"
+                  title="Fast reduces reasoning time. Thorough takes longer for deeper analysis."
+                >
                   <Zap size={12} />
-                  XAMO
-                </span>
+                  <select
+                    aria-label="Response speed"
+                    value={prefs.speed}
+                    onChange={(event) =>
+                      setPrefs({
+                        ...prefs,
+                        speed: event.target.value as Preferences["speed"],
+                      })
+                    }
+                  >
+                    <option value="fast">Fast</option>
+                    <option value="thorough">Thorough</option>
+                  </select>
+                </label>
                 <button
                   className={`icon-button mic-button ${listening ? "recording" : ""}`}
                   aria-label={
@@ -1119,7 +1339,9 @@ export default function Workspace() {
                   <button
                     className="send-button"
                     type="submit"
-                    disabled={!input.trim()}
+                    disabled={
+                      !!uploadProgress || (!input.trim() && !attachment)
+                    }
                     aria-label="Send message"
                   >
                     <ArrowUp size={20} />
@@ -1131,26 +1353,11 @@ export default function Workspace() {
           <input
             ref={fileRef}
             type="file"
-            accept=".txt,.md,.csv,.json"
             hidden
-            onChange={async (e) => {
-              const file = e.target.files?.[0];
-              e.target.value = "";
-              if (!file) return;
-              if (!/\.(txt|md|csv|json)$/i.test(file.name)) {
-                notify("Choose a TXT, Markdown, CSV, or JSON file.");
-                return;
-              }
-              if (file.size > 20000) {
-                notify("Please choose a text file smaller than 20 KB.");
-                return;
-              }
-              try {
-                setAttachment({ name: file.name, text: await file.text() });
-                inputRef.current?.focus();
-              } catch {
-                notify("This file could not be read.");
-              }
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = "";
+              if (file) void attach(file);
             }}
           />
           <div className="composer-disclaimer">
@@ -1561,8 +1768,10 @@ export default function Workspace() {
                       <strong>Private by default on this device</strong>
                       <p>
                         Chats are stored locally. Prompts are sent to the AI
-                        provider, and searches to a search provider when
-                        enabled. Signing in does not sync history.
+                        provider. Uploaded files are held by Gemini for up to 48
+                        hours; file references and chat history stay on this
+                        device. Searches go to a search provider when enabled.
+                        Signing in does not sync history.
                       </p>
                     </div>
                     <span className="local-tag">LOCAL</span>

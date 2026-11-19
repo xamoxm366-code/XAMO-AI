@@ -5,11 +5,30 @@ export const chatSchema = z.object({
       z.object({
         role: z.enum(["user", "assistant"]),
         content: z.string().min(1).max(24000),
+        attachments: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(240),
+              size: z
+                .number()
+                .int()
+                .positive()
+                .max(100 * 1024 * 1024),
+              mimeType: z.string().max(100),
+              token: z.string().min(1).max(6000),
+              expiresAt: z.number(),
+              note: z.string().max(300).optional(),
+            }),
+          )
+          .max(4)
+          .optional(),
       }),
     )
     .min(1)
     .max(40),
   webSearch: z.boolean().default(false),
+  stream: z.boolean().default(false),
+  speed: z.enum(["fast", "thorough"]).default("fast"),
   language: z.string().max(50).default("Auto-detect"),
   persona: z
     .enum(["Balanced", "Concise", "Creative", "Teacher"])

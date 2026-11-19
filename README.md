@@ -6,22 +6,73 @@ XAMO AI is a responsive chat application built with Next.js, React, TypeScript, 
 
 ## What is ready
 
-- Dark chat workspace, conversation search and deletion, local history, preferences, export, and text attachments (TXT, Markdown, CSV, JSON; up to 20 KB).
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:fd3f40891712c539c9a0a4c7d3aa27300ddea95c85ce78f60942088c4f72c7d1 -->
+
+- Dark chat workspace, conversation search and deletion, local history, preferences, export, file analysis, and streamed replies with Fast/Thorough response options.
+
+<!-- /coderabbit-ai-generated:v1 -->
 - Sign-in, sign-up, Google sign-in, email verification instructions, forgot-password and password-update screens, wired to Supabase when configured.
 - Server-side Gemini adapter, optional Google Search grounding with source links, request validation, and durable daily limits.
 - Server-authorized admin dashboard: enable/pause AI, set daily message limits, list the first 100 accounts, suspend and restore users. Admins cannot read local conversations.
 - Browser speech input and read-aloud controls. Available voices, language quality, and microphone support vary by browser and operating system. Speech services may process audio remotely.
 - Language auto-detection through the model, plus explicit preferences for English, Urdu, Hindi, Arabic, Spanish, French, German, Chinese, Japanese, and Portuguese. Other languages can be requested directly in chat.
 
-**Without provider configuration, chats return clearly labeled sample responses. They are not live AI or live web results.** Accounts and the admin dashboard require a configured Supabase project. Chat history stays on this browser and does not sync between accounts or devices. When connected, conversation context and attached text are sent to Gemini.
+**Without provider configuration, chats return clearly labeled sample responses. They are not live AI or live web results.** Accounts and the admin dashboard require a configured Supabase project. Chat history stays on this browser and does not sync between accounts or devices. <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:e848083e380532e9e5ce8fe20c3d04013820d005621f17cbb364f735140a95d4 -->
+
+When connected, conversation context and uploaded media or extracted file reports are sent to Gemini. Files expire within 48 hours; local history keeps file names and protected references, not the original file bytes.
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 ## A realistic zero-cost target
 
 Aim for a useful, limited beta in 10 days. Free services can support an initial experiment within their current quotas; they cannot guarantee unlimited public AI. Do not enable paid billing to chase a zero-cost goal. Check eligibility, quotas, and terms in each provider dashboard before activating a service. A `vercel.app` address avoids buying a custom domain. Email delivery to public users may require an SMTP service and verified sending domain, so test that before advertising public registration.
 
-Full Gemini feature parity, perfect speech in every language, and a secure Jarvis-style device assistant are beyond this beta. Image and video generation are excluded. PDF/image analysis, real-time voice conversations, cross-device history, account deletion, advanced moderation, streaming replies, admin audit logs, and device automation are future work.
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:6adb69051036664ed1308a8add208a7bb5cd973585d0beeab746c2428ecb8b30 -->
+
+Full Gemini feature parity, perfect speech in every language, and a secure Jarvis-style device assistant are beyond this beta. Image and video generation are excluded. Real-time voice conversations, cross-device history, account deletion, advanced moderation, admin audit logs, and device automation are future work.
+
+<!-- /coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:8cb5307e3d43838ce7f098492c3289cc816f77cccb530d276f7bb44ec1900004 -->
+
+## File analysis and response speed
+
+Use **+** beside the message box, choose one file, wait for **Ready**, and send your question. A file can also be sent without a typed question. Follow-up questions retain available files from the conversation context.
+
+| File type | Analysis supplied to Gemini |
+| --- | --- |
+| PNG, JPEG, WebP, HEIC/HEIF | Original image for visual analysis |
+| GIF, BMP, AVIF, SVG supported by the browser | Converted PNG; animated images use one frame |
+| PDF | Original PDF for text and page-image analysis, subject to the model's page/context limits |
+| Common video/audio (including MP4, MOV, WebM, MP3, WAV) | Original media; wait for provider processing |
+| Text, code, CSV, JSON, configuration files | Text report; large files use explicitly labeled beginning/end excerpts |
+| ZIP, DOCX, XLSX, PPTX, EPUB and other ZIP containers | Bounded text extraction and file listing; embedded visuals/layout are omitted |
+| APK | Static file list and available manifest text/strings; compiled code is not decompiled or executed |
+| Other binaries/proprietary formats | File size, header and sampled printable strings; this is limited inspection, not full format understanding |
+
+- Maximum original file size **100 MB**, or **50 MB for PDF**. Unsupported encodings, encrypted/damaged archives, model context/page limits and provider quotas can prevent analysis. Split large files or export to a supported format when needed. No universal decoder or unlimited file support is claimed.
+- Uploads use 2 MB chunks, keeping each request below Vercel's body limit. Processing status is polled separately, including for long videos. Cancellation stops further work; Gemini automatically deletes uploaded files within 48 hours. Reattach expired files or files uploaded under a different account/session.
+- Each upload start and each AI request consumes one unit of the existing daily quota, including failed attempts. Uploads use the existing server-only Gemini key and account/guest authorization; no new service or environment variable is required. The chosen Gemini model must support the media being analyzed.
+- Extraction runs in a browser worker. Archives are bounded to 1,000 listed entries, 60 selected text entries, 1 MB per entry and 2 MB total expanded text. <!-- coderabbit-ai-generated:v1 -->
+
+<!-- coderabbit-ai-generated-section:v1:4624a9d07957e21ad38bfc961c10d4fd472e30f8e807a4a7a434244da9d1f719 -->
+
+Extracted body text is capped at 200,000 characters, plus the bounded file listing; omitted sections are identified.
+
+<!-- /coderabbit-ai-generated:v1 --> Programs and APKs are never run, and static inspection cannot certify software safety.
+- **Fast** is the default and reduces the model's reasoning effort on known Gemini 2.5/3 model families. Choose **Thorough** for deeper analysis when quality matters more than latency. Other models use their defaults. Answers stream as they are generated; **Stop** cancels generation and preserves clearly labeled partial text. This improves time to visible text, and does not guarantee faster provider computation or bypass quotas.
 
 ## Day 1 — Open the project in VS Code
+
+<!-- /coderabbit-ai-generated:v1 -->
 
 1. Install VS Code, Git, and a maintained Node.js version supported by Next.js. This project was checked with Node 24 and npm 11.
 2. In VS Code, open **Terminal → New Terminal**.
